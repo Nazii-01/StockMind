@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>StockMind — India Market Intelligence</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDDwWX8R4jluc8BeMVFVNtVMlyPXuXj0Ik",
+  authDomain: "stock-predictor-b0b95.firebaseapp.com",
+  projectId: "stock-predictor-b0b95",
+  storageBucket: "stock-predictor-b0b95.firebasestorage.app",
+  messagingSenderId: "281270614195",
+  appId: "1:281270614195:web:55810316c0cde3222658c6"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+async function fbSaveToWatchlist(ticker, name, price) {
+  try {
+    await db.collection('watchlist').doc(ticker).set({ ticker, name, price, addedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast('Saved ' + ticker + ' to watchlist');
+    fbLoadWatchlist();
+  } catch(e) { toast('Firebase error', true); }
+}
+async function fbRemoveFromWatchlist(ticker) {
+  try { await db.collection('watchlist').doc(ticker).delete(); toast(ticker + ' removed'); fbLoadWatchlist(); } catch(e) {}
+}
+async function fbLoadWatchlist() {
+  try {
+    const snap = await db.collection('watchlist').orderBy('addedAt','desc').get();
+    renderWatchlist(snap.docs.map(d => d.data()));
+  } catch(e) { document.getElementById('wl-body').innerHTML = '<p class="empty-msg">Configure Firebase to enable watchlist</p>'; }
+}
+async function fbSavePrediction(ticker, signal, confidence, price, predicted, sentiment) {
+  try { await db.collection('predictions').add({ ticker, signal, confidence, price: Math.round(price*100)/100, predicted: Math.round(predicted*100)/100, sentiment, savedAt: firebase.firestore.FieldValue.serverTimestamp() }); } catch(e) {}
+}
+async function fbLoadHistory() {
+  try {
+    const snap = await db.collection('predictions').orderBy('savedAt','desc').limit(6).get();
+    renderHistory(snap.docs.map(d => d.data()));
+  } catch(e) { document.getElementById('hist-body').innerHTML = '<p class="empty-msg">Configure Firebase to enable history</p>'; }
+}
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #fafaf8;
+  --surface: #ffffff;
+  --border: #e5e5e0;
+  --border-strong: #d0d0c8;
+  --text: #1a1a18;
+  --text-2: #5a5a55;
+  --text-3: #9a9a95;
+  --green: #1a6b3c;
+  --green-bg: #edf7f1;
+  --red: #9b2020;
+  --red-bg: #fdf1f1;
+  --amber: #8a5e00;
+  --amber-bg: #fef8ec;
+  --blue: #1a3d6b;
+  --blue-bg: #eef4fb;
+  --accent: #2563eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141412;
+    --surface: #1e1e1b;
+    --border: #2e2e2a;
+    --border-strong: #3e3e38;
+    --text: #f0f0ec;
+    --text-2: #a0a09a;
+    --text-3: #606058;
+    --green: #4ade80;
+    --green-bg: #0f2b1a;
+    --red: #f87171;
+    --red-bg: #2a0f0f;
+    --amber: #fbbf24;
+    --amber-bg: #2a200a;
+    --blue: #93c5fd;
+    --blue-bg: #0f1e2e;
+    --accent: #3b82f6;
+  }
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.page { max-width: 1100px; margin: 0 auto; padding: 0 24px 60px; }
+
+/* ── Top bar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand-name {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+.brand-sub { font-size: 12px; color: var(--text-3); }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.status-dot {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-2);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.fb-tag {
+  font-size: 11px; color: var(--text-3);
+  border: 1px solid var(--border);
+  padding: 3px 10px; border-radius: 4px;
+}
+#clock { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ── Search ── */
+.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-wrap { flex: 1; position: relative; }
+.search-wrap input {
+  width: 100%;
+  padding: 11px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.search-wrap input:focus { border-color: var(--accent); }
+.search-wrap input::placeholder { color: var(--text-3); font-weight: 400; letter-spacing: 0; }
+.btn-analyze {
+  padding: 11px 22px;
+  background: var(--text);
+  color: var(--bg);
+  border: none;
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.btn-analyze:hover { opacity: 0.85; }
+.btn-analyze:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.quick-row {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 36px;
+  align-items: center;
+}
+.quick-label { font-size: 12px; color: var(--text-3); margin-right: 2px; }
+.chip {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  background: var(--surface);
+  transition: all 0.15s;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Two column layout ── */
+.layout { display: grid; grid-template-columns: 1fr 280px; gap: 32px; }
+@media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+
+/* ── Main stock area ── */
+.stock-header {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.stock-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.stock-meta { font-size: 12px; color: var(--text-3); margin-bottom: 16px; }
+.stock-price-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.stock-price {
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+}
+.change-pill {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 4px;
+}
+.change-pill.up { background: var(--green-bg); color: var(--green); }
+.change-pill.dn { background: var(--red-bg); color: var(--red); }
+
+/* Signal bar */
+.signal-bar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 24px;
+  background: var(--surface);
+}
+.signal-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text-3);
+}
+.signal-val {
+  font-size: 22px; font-weight: 600;
+}
+.signal-val.BUY { color: var(--green); }
+.signal-val.SELL { color: var(--red); }
+.signal-val.HOLD { color: var(--amber); }
+.signal-conf { font-size: 12px; color: var(--text-3); margin-left: auto; }
+.signal-sep { width: 1px; height: 32px; background: var(--border); }
+
+/* Section heading */
+.section-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Chart */
+.chart-box { margin-bottom: 28px; }
+.chart-area { height: 220px; position: relative; }
+
+/* Stat row */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+.stat-cell {
+  background: var(--surface);
+  padding: 14px 16px;
+}
+.stat-cell-label { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.stat-cell-val { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Sentiment bar */
+.sent-row { display: flex; gap: 6px; margin-bottom: 28px; }
+.sent-seg {
+  height: 6px;
+  border-radius: 3px;
+  transition: width 0.8s ease;
+}
+
+/* Forecast table */
+.forecast-tbl { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+.forecast-tbl th { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-3); text-align: left; padding: 0 0 8px; border-bottom: 1px solid var(--border); }
+.forecast-tbl td { padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.forecast-tbl tr:last-child td { border-bottom: none; }
+.up-text { color: var(--green); font-weight: 500; }
+.dn-text { color: var(--red); font-weight: 500; }
+
+/* News list */
+.news-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.news-item:last-child { border-bottom: none; }
+.news-headline { font-size: 13px; line-height: 1.5; color: var(--text); margin-bottom: 5px; }
+.news-headline a { color: inherit; text-decoration: none; }
+.news-headline a:hover { color: var(--accent); }
+.news-byline { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); }
+.news-badge {
+  padding: 1px 7px; border-radius: 3px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.3px; text-transform: uppercase;
+}
+.nb-pos { background: var(--green-bg); color: var(--green); }
+.nb-neg { background: var(--red-bg); color: var(--red); }
+.nb-neu { background: var(--amber-bg); color: var(--amber); }
+
+/* Support/resistance */
+.sr-row { display: flex; gap: 12px; margin-bottom: 28px; }
+.sr-card { flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.sr-label { font-size: 11px; color: var(--text-3); margin-bottom: 3px; }
+.sr-val { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── Sidebar ── */
+.sidebar {}
+
+/* Firebase panel */
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.panel-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panel-head-tag { font-size: 10px; color: var(--text-3); font-weight: 400; }
+.panel-body { padding: 12px 16px; }
+.empty-msg { font-size: 12px; color: var(--text-3); text-align: center; padding: 12px 0; }
+
+/* Watchlist items */
+.wl-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.wl-item:last-of-type { border-bottom: none; }
+.wl-ticker-text { font-size: 13px; font-weight: 600; }
+.wl-price-text { font-size: 11px; color: var(--text-3); }
+.wl-actions { display: flex; gap: 4px; }
+.icon-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 13px; padding: 3px 5px;
+  border-radius: 4px; transition: background 0.1s;
+}
+.icon-btn:hover { background: var(--border); color: var(--text); }
+.btn-add-wl {
+  width: 100%; margin-top: 10px;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-add-wl:hover { border-color: var(--accent); color: var(--accent); }
+.btn-add-wl:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* History rows */
+.hist-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.hist-item:last-child { border-bottom: none; }
+.hist-ticker { font-weight: 600; font-size: 12px; }
+.hist-price { color: var(--text-3); font-size: 11px; }
+.sig-chip {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+  padding: 2px 8px; border-radius: 3px; text-transform: uppercase;
+}
+.sig-BUY { background: var(--green-bg); color: var(--green); }
+.sig-SELL { background: var(--red-bg); color: var(--red); }
+.sig-HOLD { background: var(--amber-bg); color: var(--amber); }
+
+/* Indicators sidebar panel */
+.ind-list {}
+.ind-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.ind-row:last-child { border-bottom: none; }
+.ind-name { color: var(--text-2); }
+.ind-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Loading */
+.overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(250,250,248,0.85);
+  z-index: 999;
+  align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  .overlay { background: rgba(20,20,18,0.88); }
+}
+.overlay.on { display: flex; }
+.spinner {
+  width: 28px; height: 28px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.overlay-msg { font-size: 13px; color: var(--text-2); }
+
+/* Toast */
+.toast-wrap {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  z-index: 9999;
+  background: var(--text);
+  color: var(--bg);
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.toast-wrap.show { opacity: 1; }
+
+#dashboard { display: none; }
+#empty {
+  padding: 60px 0;
+  text-align: center;
+  color: var(--text-3);
+}
+#empty p:first-child { font-size: 32px; margin-bottom: 10px; }
+#empty p:last-child { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay">
+  <div class="spinner"></div>
+  <div class="overlay-msg" id="overlay-msg">Fetching data...</div>
+</div>
+
+<div class="toast-wrap" id="toast"></div>
+
+<div class="page">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <span class="brand-name">StockMind</span>
+      <span class="brand-sub">India Market Intelligence</span>
+    </div>
+    <div class="topbar-right">
+      <div class="status-dot"><div class="dot"></div> Live NSE</div>
+      <div class="fb-tag">Firebase</div>
+      <div id="clock"></div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="search-row">
+    <div class="search-wrap">
+      <input id="ticker-input" type="text" value="TCS.NS" maxlength="15" placeholder="Ticker symbol e.g. TCS.NS, INFY.NS" />
+    </div>
+    <button class="btn-analyze" id="analyze-btn" onclick="analyze()">Analyze</button>
+  </div>
+  <div class="quick-row">
+    <span class="quick-label">NSE</span>
+    <span class="chip" onclick="go('TCS.NS')">TCS</span>
+    <span class="chip" onclick="go('INFY.NS')">Infosys</span>
+    <span class="chip" onclick="go('WIPRO.NS')">Wipro</span>
+    <span class="chip" onclick="go('HCLTECH.NS')">HCL Tech</span>
+    <span class="chip" onclick="go('RELIANCE.NS')">Reliance</span>
+    <span class="chip" onclick="go('TATAMOTORS.NS')">Tata Motors</span>
+    <span class="chip" onclick="go('HDFCBANK.NS')">HDFC Bank</span>
+    <span class="chip" onclick="go('BAJFINANCE.NS')">Bajaj Finance</span>
+  </div>
+
+  <!-- Two column -->
+  <div class="layout">
+
+    <!-- Main -->
+    <div>
+      <div id="empty">
+        <p>📈</p>
+        <p>Search for a stock above to see live analysis, ML prediction and news sentiment.</p>
+      </div>
+
+      <div id="dashboard">
+
+        <!-- Stock header -->
+        <div class="stock-header">
+          <div class="stock-name" id="s-name"></div>
+          <div class="stock-meta" id="s-meta"></div>
+          <div class="stock-price-row">
+            <div class="stock-price" id="s-price"></div>
+            <div class="change-pill" id="s-change"></div>
+          </div>
+        </div>
+
+        <!-- Signal bar -->
+        <div class="signal-bar">
+          <div>
+            <div class="signal-label">Signal</div>
+            <div class="signal-val" id="sig-val"></div>
+          </div>
+          <div class="signal-sep"></div>
+          <div>
+            <div class="signal-label">Confidence</div>
+            <div style="font-size:16px;font-weight:600" id="sig-conf"></div>
+          </div>
+          <div class="signal-sep"></div>
+          <div>
+            <div class="signal-label">Predicted</div>
+            <div style="font-size:16px;font-weight:600" id="sig-pred"></div>
+          </div>
+          <div class="signal-sep"></div>
+          <div>
+            <div class="signal-label">Sentiment</div>
+            <div style="font-size:16px;font-weight:600" id="sig-sent"></div>
+          </div>
+        </div>
+
+        <!-- Price chart -->
+        <div class="chart-box">
+          <div class="section-head">Price history — 60 days</div>
+          <div class="chart-area"><canvas id="price-chart"></canvas></div>
+        </div>
+
+        <!-- Stats -->
+        <div class="section-head">Key statistics</div>
+        <div class="stat-grid" style="margin-bottom:28px">
+          <div class="stat-cell"><div class="stat-cell-label">52W High</div><div class="stat-cell-val" id="st-52h"></div></div>
+          <div class="stat-cell"><div class="stat-cell-label">52W Low</div><div class="stat-cell-val" id="st-52l"></div></div>
+          <div class="stat-cell"><div class="stat-cell-label">RSI (14)</div><div class="stat-cell-val" id="st-rsi"></div></div>
+          <div class="stat-cell"><div class="stat-cell-label">SMA 20</div><div class="stat-cell-val" id="st-sma20"></div></div>
+          <div class="stat-cell"><div class="stat-cell-label">SMA 50</div><div class="stat-cell-val" id="st-sma50"></div></div>
+          <div class="stat-cell"><div class="stat-cell-label">Beta</div><div class="stat-cell-val" id="st-beta"></div></div>
+        </div>
+
+        <!-- Sentiment breakdown -->
+        <div class="section-head">News sentiment breakdown</div>
+        <div id="sent-bar-wrap" style="margin-bottom:8px"></div>
+        <div id="sent-legend" style="display:flex;gap:16px;font-size:12px;color:var(--text-3);margin-bottom:28px"></div>
+
+        <!-- Support / Resistance -->
+        <div class="section-head">Support & resistance</div>
+        <div class="sr-row">
+          <div class="sr-card"><div class="sr-label">Support</div><div class="sr-val up-text" id="sr-sup"></div></div>
+          <div class="sr-card"><div class="sr-label">Resistance</div><div class="sr-val dn-text" id="sr-res"></div></div>
+        </div>
+
+        <!-- Forecast -->
+        <div class="section-head">5-day ML forecast</div>
+        <table class="forecast-tbl">
+          <thead><tr><th>Date</th><th>Price (₹)</th><th>Change</th></tr></thead>
+          <tbody id="forecast-body"></tbody>
+        </table>
+
+        <!-- News -->
+        <div class="section-head">Latest news</div>
+        <div id="news-list"></div>
+
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Watchlist -->
+      <div class="panel">
+        <div class="panel-head">
+          Watchlist
+          <span class="panel-head-tag">Firestore</span>
+        </div>
+        <div class="panel-body">
+          <div id="wl-body"><p class="empty-msg">No stocks saved yet</p></div>
+          <button class="btn-add-wl" id="add-wl-btn" onclick="addToWatchlist()" disabled>+ Add current stock</button>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="panel">
+        <div class="panel-head">
+          Prediction history
+          <span class="panel-head-tag">Firestore</span>
+        </div>
+        <div class="panel-body">
+          <div id="hist-body"><p class="empty-msg">No predictions yet</p></div>
+        </div>
+      </div>
+
+      <!-- Technicals -->
+      <div class="panel" id="tech-panel" style="display:none">
+        <div class="panel-head">Technical indicators</div>
+        <div class="panel-body">
+          <div class="ind-list" id="tech-list"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000/api';
+let chart = null, curStock = null, curPred = null;
+
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}, 1000);
+
+let toastTimer;
+function toast(msg, err) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = err ? '#9b2020' : '#1a1a18';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function go(t) {
+  document.getElementById('ticker-input').value = t;
+  analyze();
+}
+
+function setLoading(on, msg) {
+  document.getElementById('overlay').classList.toggle('on', on);
+  if (msg) document.getElementById('overlay-msg').textContent = msg;
+  document.getElementById('analyze-btn').disabled = on;
+}
+
+async function analyze() {
+  const ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
+  if (!ticker) return;
+
+  setLoading(true, 'Fetching live prices...');
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('empty').style.display = 'none';
+
+  try {
+    const [stockRes, sentRes] = await Promise.all([
+      fetch(API + '/stock/' + ticker),
+      fetch(API + '/sentiment/' + ticker)
+    ]);
+    if (!stockRes.ok) throw new Error('Ticker not found: ' + ticker);
+    const stock = await stockRes.json();
+    const sent = await sentRes.json();
+
+    setLoading(true, 'Running ML prediction...');
+    const predRes = await fetch(API + '/predict/' + ticker + '?sentiment_score=' + sent.sentiment_score);
+    const pred = await predRes.json();
+
+    curStock = stock; curPred = pred;
+    render(stock, sent, pred);
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('add-wl-btn').disabled = false;
+
+    await fbSavePrediction(stock.ticker, pred.signal, pred.confidence, stock.current_price, pred.predicted_next_day, sent.sentiment_score);
+    fbLoadHistory();
+  } catch(e) {
+    document.getElementById('empty').style.display = 'block';
+    toast(e.message || 'Connection failed — is the backend running?', true);
+  } finally {
+    setLoading(false);
+  }
+}
+
+function inr(n) {
+  return '₹' + Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function render(stock, sent, pred) {
+  // Header
+  document.getElementById('s-name').textContent = stock.name + ' (' + stock.ticker + ')';
+  document.getElementById('s-meta').textContent = stock.sector + ' · ' + stock.industry;
+  document.getElementById('s-price').textContent = inr(stock.current_price);
+  const cpEl = document.getElementById('s-change');
+  const up = stock.change >= 0;
+  cpEl.textContent = (up?'+':'') + inr(stock.change) + '  (' + (up?'+':'') + stock.change_pct + '%)';
+  cpEl.className = 'change-pill ' + (up ? 'up' : 'dn');
+
+  // Signal bar
+  const sigEl = document.getElementById('sig-val');
+  sigEl.textContent = pred.signal;
+  sigEl.className = 'signal-val ' + pred.signal;
+  document.getElementById('sig-conf').textContent = pred.confidence + '%';
+  document.getElementById('sig-pred').textContent = inr(pred.predicted_next_day);
+  const sc = sent.sentiment_score;
+  const sentEl = document.getElementById('sig-sent');
+  sentEl.textContent = sc + '/100';
+  sentEl.style.color = sc > 60 ? 'var(--green)' : sc < 40 ? 'var(--red)' : 'var(--amber)';
+
+  // Chart
+  const labels = stock.history.slice(-60).map(h => h.date.slice(5));
+  const closes = stock.history.slice(-60).map(h => h.close);
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('price-chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: closes,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37,99,235,0.06)',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => '₹' + ctx.parsed.y.toLocaleString('en-IN') }
+      }},
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9a9a95', font: { size: 10 }, maxTicksLimit: 8 } },
+        y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#9a9a95', font: { size: 10 }, callback: v => '₹' + v.toLocaleString('en-IN') } }
+      }
+    }
+  });
+
+  // Stats
+  document.getElementById('st-52h').textContent = inr(stock.week_52_high);
+  document.getElementById('st-52l').textContent = inr(stock.week_52_low);
+  document.getElementById('st-rsi').textContent = stock.rsi;
+  document.getElementById('st-sma20').textContent = inr(stock.sma20);
+  document.getElementById('st-sma50').textContent = inr(stock.sma50);
+  document.getElementById('st-beta').textContent = stock.beta || 'N/A';
+
+  // Sentiment bar
+  const pos = sent.breakdown.positive, neg = sent.breakdown.negative, neu = sent.breakdown.neutral;
+  const total = pos + neg + neu || 1;
+  document.getElementById('sent-bar-wrap').innerHTML =
+    '<div style="display:flex;gap:3px;height:8px;border-radius:4px;overflow:hidden">' +
+    '<div style="width:' + (pos/total*100).toFixed(1) + '%;background:var(--green);border-radius:4px 0 0 4px"></div>' +
+    '<div style="width:' + (neu/total*100).toFixed(1) + '%;background:var(--amber-bg);border:1px solid var(--border)"></div>' +
+    '<div style="width:' + (neg/total*100).toFixed(1) + '%;background:var(--red);border-radius:0 4px 4px 0"></div>' +
+    '</div>';
+  document.getElementById('sent-legend').innerHTML =
+    '<span style="color:var(--green)">▪ ' + pos + ' positive</span>' +
+    '<span>▪ ' + neu + ' neutral</span>' +
+    '<span style="color:var(--red)">▪ ' + neg + ' negative</span>';
+
+  // Support/resistance
+  document.getElementById('sr-sup').textContent = inr(pred.support);
+  document.getElementById('sr-res').textContent = inr(pred.resistance);
+
+  // Forecast
+  let rows = '';
+  pred.forecast.forEach((f, i) => {
+    const base = i === 0 ? stock.current_price : pred.forecast[i-1].price;
+    const chg = ((f.price - base) / base * 100).toFixed(2);
+    const up2 = parseFloat(chg) >= 0;
+    rows += '<tr><td>' + f.date + '</td><td>' + inr(f.price) + '</td><td class="' + (up2?'up-text':'dn-text') + '">' + (up2?'+':'') + chg + '%</td></tr>';
+  });
+  document.getElementById('forecast-body').innerHTML = rows;
+
+  // News
+  let newsHtml = '';
+  sent.articles.slice(0,6).forEach(a => {
+    const cls = a.sentiment.label==='POSITIVE'?'nb-pos':a.sentiment.label==='NEGATIVE'?'nb-neg':'nb-neu';
+    newsHtml +=
+      '<div class="news-item">' +
+        '<div class="news-headline"><a href="' + a.url + '" target="_blank">' + a.title + '</a></div>' +
+        '<div class="news-byline"><span class="news-badge ' + cls + '">' + a.sentiment.label + '</span>' + a.source + ' · ' + a.published + '</div>' +
+      '</div>';
+  });
+  document.getElementById('news-list').innerHTML = newsHtml || '<p class="empty-msg">No recent news</p>';
+
+  // Technicals sidebar
+  document.getElementById('tech-panel').style.display = 'block';
+  document.getElementById('tech-list').innerHTML = [
+    ['BB Upper', inr(stock.bb_upper)],
+    ['BB Lower', inr(stock.bb_lower)],
+    ['P/E Ratio', stock.pe_ratio ? stock.pe_ratio.toFixed(1) : 'N/A'],
+    ['Volume', (stock.volume/1e5).toFixed(1) + 'L'],
+    ['Avg Volume', (stock.avg_volume/1e5).toFixed(1) + 'L'],
+    ['Div Yield', stock.dividend_yield ? (stock.dividend_yield*100).toFixed(2) + '%' : 'N/A'],
+  ].map(([l,v]) => '<div class="ind-row"><span class="ind-name">' + l + '</span><span class="ind-value">' + v + '</span></div>').join('');
+}
+
+function renderWatchlist(items) {
+  const el = document.getElementById('wl-body');
+  if (!items.length) { el.innerHTML = '<p class="empty-msg">No stocks saved yet</p>'; return; }
+  el.innerHTML = items.map(item =>
+    '<div class="wl-item">' +
+      '<div onclick="go(\'' + item.ticker + '\')" style="cursor:pointer">' +
+        '<div class="wl-ticker-text">' + item.ticker.replace('.NS','') + '</div>' +
+        '<div class="wl-price-text">@ ₹' + item.price + '</div>' +
+      '</div>' +
+      '<div class="wl-actions">' +
+        '<button class="icon-btn" onclick="go(\'' + item.ticker + '\')" title="Analyze">↗</button>' +
+        '<button class="icon-btn" onclick="fbRemoveFromWatchlist(\'' + item.ticker + '\')" title="Remove">✕</button>' +
+      '</div>' +
+    '</div>'
+  ).join('');
+}
+
+function renderHistory(items) {
+  const el = document.getElementById('hist-body');
+  if (!items.length) { el.innerHTML = '<p class="empty-msg">No predictions yet</p>'; return; }
+  el.innerHTML = items.map(item =>
+    '<div class="hist-item">' +
+      '<div><div class="hist-ticker">' + item.ticker.replace('.NS','') + '</div>' +
+        '<div class="hist-price">₹' + item.price + ' → ₹' + item.predicted + '</div></div>' +
+      '<span class="sig-chip sig-' + item.signal + '">' + item.signal + '</span>' +
+    '</div>'
+  ).join('');
+}
+
+function addToWatchlist() {
+  if (curStock) fbSaveToWatchlist(curStock.ticker, curStock.name, curStock.current_price);
+}
+
+document.getElementById('ticker-input').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+window.onload = () => { fbLoadWatchlist(); fbLoadHistory(); analyze(); };
+</script>
+</body>
+</html>
