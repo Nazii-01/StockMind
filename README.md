@@ -38,7 +38,9 @@ Open `http://localhost:3000`. Backend runs on `http://localhost:8000`.
 ## Running with Docker
 
 ```bash
-docker-compose up --build
+Install Docker and wait for the engine to start running
+Open command prompt and direct to your project folder 
+docker-compose up
 ```
 ## Screenshots
 ![First Page](images/sc1.png)
