@@ -1,4 +1,4 @@
-# StockMind — India Market Intelligence
+# StockMind 
 
 Real-time stock analysis platform for NSE equities. Combines live market data, NLP sentiment analysis on news headlines, and ML-based price prediction into a clean web dashboard backed by Firebase.
 
