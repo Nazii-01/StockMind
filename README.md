@@ -45,6 +45,8 @@ docker-compose up
 ## Screenshots
 ![First Page](images/sc1.png)
 ![Second Page](images/sc2.png)
+![Third Page](images/sc3.png)
+![Fourth Page](images/sc4.png)
 
 ## Notes
 
